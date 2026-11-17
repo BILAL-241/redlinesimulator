@@ -92,6 +92,7 @@ const Game = {
   buildWorld: function (idx) {
     const map = MAPS[idx], q = qualityLevel();
     this.W = buildWorld(idx, q); this.mapIdx = idx; const W = this.W;
+    this.onFoot = false; this.walk = null; this.parked = []; this.chasers = []; this.wanted = 0; this.lostT = 0;
     W.scene.environment = this.worldEnv; [this.smoke.points, this.spark.points, this.flame.points].forEach(function (p) { W.scene.add(p); });
     this.hours = SAVE.clock[map.id] !== undefined ? SAVE.clock[map.id] : map.start; this.todT = 0;
     this.makePlayer();
@@ -147,6 +148,7 @@ const Game = {
   openMap: function () { if (this.mode !== 'roam' && this.mode !== 'paused') return; UI.showModal('md-pause', false); this.mode = 'map'; Sound.silence(); UI.openMap(); },
   closeMap: function () { UI.closeMap(); this.mode = 'paused'; UI.showModal('md-pause', true); },
   openGarage: function (fromWorld) {
+    if (fromWorld && this.onFoot) { this.toast('Get in a car to open the garage', true); return; }
     this.pauseFrom = fromWorld ? 'world' : 'menu';
     if (fromWorld) { UI.showModal('md-pause', false); this.savePos(); }
     this.mode = 'garage'; Sound.silence(); Garage.active = true; UI.openGarage();
@@ -362,7 +364,8 @@ const Game = {
     const v = this.player, W = this.W, E = this.ev; this.simT += dt;
     const frozen = E && E.state === 'countdown';
     const inp = frozen ? ZERO_IN : Input;
-    v.px = v.x; v.pz = v.z; v.ph = v.h; v.step(dt, inp, W);
+    v.px = v.x; v.pz = v.z; v.ph = v.h;
+    if (this.onFoot) this.stepWalk(dt, inp); else v.step(dt, inp, W);
     // traffic
     for (let i = 0; i < this.traffic.length; i++) {
       const t = this.traffic[i]; if (!t.active || E) continue;
@@ -371,8 +374,13 @@ const Game = {
         t.vf = Math.hypot(t.vx, t.vz); const g = W.ground(t.x, t.z, _tg); t.y = g.y; t.mesh.position.set(t.x, t.y, t.z); t.mesh.rotation.y = t.h;
         if (t.knock <= 0) { t.mesh.visible = false; t.active = false; t.respawn = 2; }
       } else this.trafficPose(t, dt);
-      this.carHit(v, t);
+      if (!this.onFoot) this.carHit(v, t);
     }
+    if (!this.onFoot) {
+      for (let i = 0; i < this.parked.length; i++) { const p = this.parked[i]; if (p !== v) { this.carHit(v, p); p.vx = p.vz = 0; } }
+      for (let i = 0; i < this.chasers.length; i++) this.carHit(v, this.chasers[i]);
+    }
+    if (this.wanted && !E) this.updateWanted(SIM_DT);
     if (E) {
       this.updateEvent(dt);
       if (E.state !== 'countdown') {
@@ -386,15 +394,17 @@ const Game = {
       }
     }
     // collision feedback
-    if (v.hit > 2.5 && this.simT - this.lastHit > 0.2) {
+    if (!this.onFoot && v.hit > 2.5 && this.simT - this.lastHit > 0.2) {
       this.lastHit = this.simT; Sound.thump(v.hit * 0.03); this.camShake = Math.min(1, v.hit * 0.05);
       for (let k = 0; k < Math.min(10, v.hit); k++) this.spark.emit(v.x, v.y + 0.5, v.z, (Math.random() - 0.5) * 8, Math.random() * 4, (Math.random() - 0.5) * 8, 0.35, 0.18, -0.2, 1, 0.7, 0.3, 1);
     }
     // stuck + out of bounds + water
-    if (!E || E.state !== 'countdown') { if (Math.abs(v.vf) < 1 && Input.throttle > 0.5) v.stuck += dt; else v.stuck = 0; }
-    const d = Math.hypot(v.x, v.z); this.outT = d > TERR.r0 + 400 ? this.outT + dt : 0; if (this.outT > 3.5) this.respawn('Out of bounds');
-    this.waterT = v.water ? this.waterT + dt : 0; if (this.waterT > 2) this.respawn('Splash! Back on the road');
-    if (!E) { this.driftTick(v, dt); this.checkTraps(v); this.coolMiss -= dt; this.nearMiss(v); }
+    if (!this.onFoot && (!E || E.state !== 'countdown')) { if (Math.abs(v.vf) < 1 && Input.throttle > 0.5) v.stuck += dt; else v.stuck = 0; }
+    if (!this.onFoot) {
+      const d = Math.hypot(v.x, v.z); this.outT = d > TERR.r0 + 400 ? this.outT + dt : 0; if (this.outT > 3.5) this.respawn('Out of bounds');
+      this.waterT = v.water ? this.waterT + dt : 0; if (this.waterT > 2) this.respawn('Splash! Back on the road');
+    }
+    if (!E && !this.onFoot) { this.driftTick(v, dt); this.checkTraps(v); this.coolMiss -= dt; this.nearMiss(v); }
     this.kmAcc += Math.hypot(v.vx, v.vz) * dt;
     if (this.kmAcc >= 1000) { this.kmAcc -= 1000; SAVE.stats.km += 1; if (!E) addMoney(40, 'distance'); this.recordTop(Math.round(Math.abs(v.vf) * 3.6)); }
   },
@@ -425,13 +435,17 @@ const Game = {
 
   worldFrame: function (dt) {
     const W = this.W, v = this.player, E = this.ev, alpha = clamp(this.acc / SIM_DT, 0, 1);
-    this.pose = this.interp(v, alpha); const P = this.pose;
+    const w = this.walk, onFoot = this.onFoot;
+    this.pose = onFoot ? { x: w.x, z: w.z, h: w.h, y: w.y } : this.interp(v, alpha); const P = this.pose;
     // time of day
     this.hours = (this.hours + dt * settings.daySpeed / 150) % 24; // Normal: a full day takes about an hour
-    this.todT -= dt; if (this.todT <= 0) { this.todT = 0.2; applyTimeOfDay(W, this.hours, GL.camera.position); v.api.setNight(W.night); this.headL.intensity = 7 * clamp(W.night * 1.3, 0, 1); }
+    this.todT -= dt; if (this.todT <= 0) { this.todT = 0.2; applyTimeOfDay(W, this.hours, GL.camera.position); v.api.setNight(W.night); if (this.headL) this.headL.intensity = 7 * clamp(W.night * 1.3, 0, 1); }
     W.update(P.x, P.z, dt, GL.camera.position);
     // meshes
-    v.applyMesh(dt, P.x, P.z, P.h);
+    if (onFoot) { w.mesh.visible = true; w.mesh.rotation.y = w.h; w.mesh.position.set(w.x, w.y, w.z); v.applyMesh(dt, v.x, v.z, v.h); }
+    else v.applyMesh(dt, P.x, P.z, P.h);
+    this.parked.forEach(function (p) { if (p !== v) p.applyMesh(dt, p.x, p.z, p.h); });
+    this.chasers.forEach(function (c) { c.mesh.visible = true; });
     Net.update(dt, P, v);
     this.rivals.forEach((r) => { const q = this.interp(r, alpha); r.applyMesh(dt, q.x, q.z, q.h); r.api.setNight(W.night); });
     // traffic respawn
@@ -447,11 +461,12 @@ const Game = {
     if (this.hintT <= 0) {
       this.hintT = 0.15; this.nearEv = E ? null : this.nearestEvent();
       let hint = '';
-      if (this.nearEv) { const d = this.nearEv; hint = '<kbd>E</kbd> ' + d.name + (d.type === 'circuit' ? ' · ' + d.laps + (d.laps > 1 ? ' laps' : ' lap') : '') + ' · up to ' + fmtMoney(d.reward) + ' CR'; }
-      UI.hint(hint, !!this.nearEv);
+      if (!this.nearEv && !E) hint = this.actionHint();
+    if (this.nearEv) { const d = this.nearEv; hint = '<kbd>E</kbd> ' + d.name + (d.type === 'circuit' ? ' · ' + d.laps + (d.laps > 1 ? ' laps' : ' lap') : '') + ' · up to ' + fmtMoney(d.reward) + ' CR'; }
+      UI.hint(hint, !!hint);
     }
-    if (this.nearEv && !E && Input.was('KeyE')) { this.startEvent(this.nearEv); this.nearEv = null; }
-    if (Input.was('KeyR')) this.respawn('Reset');
+    if (Input.was('KeyE')) { if (this.nearEv && !E) { this.startEvent(this.nearEv); this.nearEv = null; } else this.carAction(); }
+    if (Input.was('KeyR')) { if (this.onFoot) this.walkerReset(); else this.respawn('Reset'); }
     if (Input.was('KeyC')) { settings.camera = (settings.camera + 1) % 3; saveSettings(); this.toast(['Chase camera', 'Close camera', 'Cockpit camera'][settings.camera], false); }
     if (Input.was('KeyT')) Net.openChat();
     if (Input.was('KeyM') || Input.was('Tab')) this.openMap();
@@ -460,7 +475,8 @@ const Game = {
     if (this.cashT > 0) { this.cashT -= dt; if (this.cashT <= 0) { this.cashSum = 0; } }
     this.hud(dt);
     // sound
-    Sound.update(v.rpm, Input.throttle, v.slip, v.boosting, true);
+    Sound.update(v.rpm, this.onFoot ? 0 : Input.throttle, v.slip, v.boosting, true);
+    this.wantedHud();
     // autosave
     this.saveT += dt; if (this.saveT > 25) { this.saveT = 0; this.savePos(); persist(); }
   },
@@ -479,6 +495,7 @@ const Game = {
   /* ---------------------------- camera ---------------------------- */
   snapCamera: function () { this.camP.x = this.player.x - Math.sin(this.camH) * 7; this.camP.z = this.player.z - Math.cos(this.camH) * 7; this.camP.y = this.player.y + 2.5; },
   camera: function (dt) {
+    if (this.onFoot) { this.cameraWalk(dt); return; }
     const cam = GL.camera, v = this.player, P = this.pose.x === undefined ? v : this.pose, mode = settings.camera, sp = Math.hypot(v.vx, v.vz);
     if (this.mode !== 'roam' && this.mode !== 'paused' && this.mode !== 'map') return;
     const velH = Math.atan2(v.vx, v.vz), th = sp > 7 && v.vf > 0 ? v.h + wrapPi(velH - v.h) * 0.4 : v.h;
