@@ -476,7 +476,7 @@ function buildWorld(mapIdx, quality) {
       const rt = r.route; let s = 20, side = 1;
       while (s < rt.len) {
         const o = rt.at(s), px = o.x + -o.tz * side * (r.w / 2 + 2.6), pz = o.z + o.tx * side * (r.w / 2 + 2.6);
-        if (!(r.kind !== 'ring' && Math.abs(px) < 12 && Math.abs(pz) < 12 && false)) {
+        if (roadClear(px, pz, 0.6)) {
           const ry = Math.atan2(-o.tz * side, o.tx * side) * 0 + Math.atan2(-(-o.tz * side), -(o.tx * side)) + Math.PI * 0;
           put('lamp', px, terrH(px, pz) + 0.05, pz, 1, 1, 1, Math.atan2(-o.tz * side * -1, -o.tx * side * -1) * 0 + Math.atan2(o.tz * side, -o.tx * side) * 0 + Math.atan2(-o.tx * side, -o.tz * side) + Math.PI, white);
           put('lampHead', px, terrH(px, pz) + 0.05, pz, 1, 1, 1, Math.atan2(-o.tx * side, -o.tz * side) + Math.PI, white);

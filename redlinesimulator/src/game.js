@@ -92,14 +92,14 @@ const Game = {
   buildWorld: function (idx) {
     const map = MAPS[idx], q = qualityLevel();
     this.W = buildWorld(idx, q); this.mapIdx = idx; const W = this.W;
-    this.onFoot = false; this.walk = null; this.parked = []; this.chasers = []; this.wanted = 0; this.lostT = 0;
+    this.onFoot = false; this.walk = null; this.parked = []; this.chasers = []; this.cops = []; this.peds = []; this.wanted = 0; this.lostT = 0;
     W.scene.environment = this.worldEnv; [this.smoke.points, this.spark.points, this.flame.points].forEach(function (p) { W.scene.add(p); });
     this.hours = SAVE.clock[map.id] !== undefined ? SAVE.clock[map.id] : map.start; this.todT = 0;
     this.makePlayer();
     const p = SAVE.pos;
     if (p) this.teleport(p.x, p.z, p.h); else this.teleport(W.spawn.x, W.spawn.z, W.spawn.h);
     this.camH = this.player.h; this.snapCamera();
-    this.buildTraffic(); applyTimeOfDay(W, this.hours, GL.camera.position); this.applyShadowFlags();
+    this.buildTraffic(); this.spawnPeds(); applyTimeOfDay(W, this.hours, GL.camera.position); this.applyShadowFlags();
     W.update(this.player.x, this.player.z, 0.01, GL.camera.position);
     Net.joinWorld();
   },
@@ -196,7 +196,7 @@ const Game = {
       const r = roads[Math.floor(Math.random() * roads.length)], rt = r.route, i = Math.floor(Math.random() * rt.n), pt = rt.p[i], d = Math.hypot(pt.x - p.x, pt.z - p.z);
       if (anywhere ? (d > 900 || d < 60) : (d < 380 || d > 760)) continue;
       t.route = rt; t.road = r; t.dir = Math.random() < 0.5 ? 1 : -1; t.s = rt.cum[i]; t.speed = 15 + (((r.id * 7 + (t.dir > 0 ? 3 : 0)) % 5) * 2.2);
-      t.knock = 0; t.vx = t.vz = 0; this.trafficPose(t, 0); t.mesh.visible = true; t.active = true; return;
+      t.knock = 0; t.vx = t.vz = 0; t.cruise = t.speed; t.jam = 0; this.trafficPose(t, 0); t.mesh.visible = true; t.active = true; return;
     }
     t.mesh.visible = false; t.active = false;
   },
@@ -373,7 +373,7 @@ const Game = {
         t.knock -= dt; t.x += t.vx * dt; t.z += t.vz * dt; t.vx *= Math.exp(-1.6 * dt); t.vz *= Math.exp(-1.6 * dt); t.h += t.spin * dt; t.spin *= Math.exp(-2 * dt);
         t.vf = Math.hypot(t.vx, t.vz); const g = W.ground(t.x, t.z, _tg); t.y = g.y; t.mesh.position.set(t.x, t.y, t.z); t.mesh.rotation.y = t.h;
         if (t.knock <= 0) { t.mesh.visible = false; t.active = false; t.respawn = 2; }
-      } else this.trafficPose(t, dt);
+      } else { this.trafficFollow(t, dt); this.trafficPose(t, dt); }
       if (!this.onFoot) this.carHit(v, t);
     }
     if (!this.onFoot) {
@@ -455,6 +455,7 @@ const Game = {
       if (t.knock <= 0 && ((t.x - v.x) * (t.x - v.x) + (t.z - v.z) * (t.z - v.z) > 950 * 950)) this.placeTraffic(t, false);
     }
     // effects
+    this.updatePeds(dt); this.updateCops(dt);
     this.effects(dt, v);
     // prompts
     this.hintT -= dt;
