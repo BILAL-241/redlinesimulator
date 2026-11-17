@@ -189,6 +189,7 @@ Object.assign(Game, {
     if (!this.wanted) return;
     const p = this.targetPos(); let near = Infinity;
     for (let i = 0; i < this.chasers.length; i++) { const c = this.chasers[i]; this.updateChaser(c, dt, p); near = Math.min(near, Math.hypot(c.x - p.x, c.z - p.z)); }
+    for (let i = 0; i < this.cops.length; i++) { const c = this.cops[i]; near = Math.min(near, Math.hypot(c.x - p.x, c.z - p.z)); } // officers on foot keep the chase going too
     if (near < (this.onFoot ? WALK.bustR - 0.6 : WALK.bustR)) { this.busted(); return; }
     if (near > WALK.lostR) this.lostT = (this.lostT || 0) + dt; else this.lostT = 0;
     if (this.lostT > WALK.lostT) { this.clearWanted(); this.toast('Police lost you', false); }

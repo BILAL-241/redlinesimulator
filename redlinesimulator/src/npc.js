@@ -25,10 +25,9 @@ Object.assign(Game, {
     const n = PED_COUNT[settings.traffic] || 0, W = this.W; if (!n || !W) return;
     const rnd = mulberry32(W.map.seed * 91 + 17), roads = W.net.roads.filter(function (r) { return r.kind !== 'spoke' && r.kind !== 'chord'; });
     if (!roads.length) return;
-    const templates = PED_PALS.map(function (p) { return buildWalkerMesh(p); });
     for (let i = 0; i < n; i++) {
       const r = roads[Math.floor(rnd() * roads.length)], rt = r.route, s = rt.cum[Math.floor(rnd() * rt.n)];
-      const mesh = templates[i % templates.length].clone(true);
+      const mesh = buildWalkerMesh(PED_PALS[i % PED_PALS.length]); // own mesh: clone() would lose the leg/arm references
       mesh.visible = false; W.scene.add(mesh);
       this.peds.push({ road: r, route: rt, s: s, dir: rnd() < 0.5 ? 1 : -1, side: rnd() < 0.5 ? 1 : -1, speed: 1.1 + rnd() * 0.9, phase: rnd() * 6.28, mesh: mesh, x: 0, z: 0, h: 0, y: 0, speedNow: 0 });
     }
@@ -86,15 +85,15 @@ Object.assign(Game, {
 
   /* ---------- police officers on foot ---------- */
   spawnCop: function () {
-    const W = this.W, p = this.walk, roads = W.net.roads.filter(function (r) { return r.kind !== 'spoke'; });
-    for (let tries = 0; tries < 40; tries++) {
-      const r = roads[Math.floor(Math.random() * roads.length)], rt = r.route, i = Math.floor(Math.random() * rt.n), pt = rt.p[i];
-      const d = Math.hypot(pt.x - p.x, pt.z - p.z);
-      if (d < 45 || d > 75) continue;
-      const g = W.ground(pt.x, pt.z, _gr); if (g.water) continue;
+    // Pick a random direction 45 to 75 m from the player, then snap to the nearest road (roads cover the whole map, so random road points rarely land near the player).
+    const W = this.W, p = this.walk, q = {};
+    for (let tries = 0; tries < 30; tries++) {
+      const a = Math.random() * 6.2832, R = 45 + Math.random() * 30;
+      W.net.query(p.x + Math.cos(a) * R, p.z + Math.sin(a) * R, q);
+      if (!q.road) continue;
+      const g = W.ground(q.px, q.pz, _gr); if (g.water) continue;
       const mesh = buildWalkerMesh(COP_PAL); W.scene.add(mesh);
-      const c = { x: pt.x - (-rt.tz[i]) * (r.w / 2 + 2.4), z: pt.z - rt.tx[i] * (r.w / 2 + 2.4), h: 0, y: g.y, mesh: mesh, phase: Math.random() * 6.28, speed: 0 };
-      return c;
+      return { x: q.px, z: q.pz, h: 0, y: g.y, mesh: mesh, phase: Math.random() * 6.28, speed: 0 };
     }
     return null;
   },
