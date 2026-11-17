@@ -1,0 +1,8 @@
+{
+  "name": "redline-garage",
+  "version": "2.2.0",
+  "private": true,
+  "description": "Open-world driving simulator with multiplayer. No npm dependencies.",
+  "scripts": { "build": "node build.js", "start": "node server/server.js" },
+  "engines": { "node": ">=16" }
+}
