@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const childProcess = require('child_process');
+const accounts = require('./accounts');
 
 const PORT = Number(process.env.PORT) || 8080;
 const MAX_PLAYERS = Number(process.env.MAX_PLAYERS) || 16;
@@ -145,6 +146,7 @@ function countCarFiles() {
 /* ---------- HTTP + upgrade ---------- */
 const server = http.createServer((req, res) => {
   const url = req.url.split('?')[0];
+  if (accounts.handleApi(req, res, url)) return;
   if (url === '/health') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify({ ok: true, game: fs.existsSync(INDEX), rooms: rooms.size, players: clients.size, carModels: countCarFiles() })); }
   if (url.indexOf('/assets/models/') === 0) { // car models: cached for a week
     const f = path.join(ROOT, decodeURIComponent(url)), dir = path.join(ROOT, 'assets', 'models') + path.sep;

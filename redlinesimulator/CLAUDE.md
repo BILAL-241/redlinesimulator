@@ -37,7 +37,9 @@ Run all the test commands plus the build before publishing any change.
 | `server/server.js` | multiplayer relay server (Node, hand-written WebSocket, no npm dependencies); also serves `dist/index.html` and `assets/models/`. See `MULTIPLAYER.md` |
 | `src/game.js` | `Game`: modes, world session, traffic, events, income, camera, HUD, minimap, main loop |
 | `src/onfoot.js` | on foot mode: walking (`stepWalk`), getting in and out (`getIn`, `getOut`), stealing traffic cars (`steal`), wanted level and police chasers (`updateWanted`, `busted`), walk camera. Merged into `Game` |
-| `src/boot.js` | wires UI and starts `Game` |
+| `src/account.js` | login gate before play: register, log in, log out, save sync to the server (`Account.gate`, `scheduleUpload`, `syncDown`). Uses `MP_SERVER` as the server address |
+| `server/accounts.js` | accounts and saved games on the server: `/api/register`, `/api/login`, `/api/logout`, `/api/me`, `/api/save`. Passwords hashed with scrypt, data in `DATA_DIR` (default `data/`, git-ignored) |
+| `src/boot.js` | wires UI and starts `Game` (waits for `Account.gate`) |
 | `src/template.html` | page shell, CSS tokens, DOM for every screen. `<!--SCRIPTS-->` is replaced at build time |
 
 Script order is fixed (`net.js` sits between `ui.js` and `game.js`) in `build.js` (all files share one global scope). Never edit `dist/index.html`.
@@ -78,6 +80,13 @@ Script order is fixed (`net.js` sits between `ui.js` and `game.js`) in `build.js
 - **A 3D car model:** put the `.glb` in `assets/models/vehicles/`, add its name (without `.glb`) to a body in `BODY_MODELS` in `src/carmodels.js`, then run `node build.js`. The build embeds it. Cars are scaled to the same length (4.4 m) unless the model is already 3.2 to 6.5 m long.
 - **A map:** add to `MAPS` (`theme`, `seed`, `R`, `Rin`, `hill`, `flat`, `rim`, palette, `difficulty`), add a `THEMES` entry in `world.js`, and a prop branch in `buildWorld`. Run `check-world.js` and `check-physics.js`.
 - **A customization option:** add the list and cost in `data.js`, a clamp in `sanitizeMods`, a control in `ui.js` (`renderBody`) and use it in `models.js`.
+
+## Accounts
+
+- Players must log in before playing. The save (`SAVE`, which holds garage and credits) is loaded from the server on login and uploaded about 2.5 s after each `persist()`.
+- Needs a server: `MP_SERVER` must be set at build time, or the page must be served by the game server.
+- Server data lives in `DATA_DIR` (`data/` by default): `users.json`, `sessions.json`, `saves/<id>.json`. Hosts with ephemeral disks (such as Render's free plan) lose this on restart, so back the folder up or use a host with a persistent disk.
+- Test: `node test/accounts-test.js` (starts its own server on port 8197, no browser needed).
 
 ## Publishing
 
