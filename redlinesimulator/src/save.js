@@ -51,7 +51,7 @@ function sanitizeSave() {
   if (s && typeof s === 'object') Object.assign(SAVE, s);
   sanitizeSave();
 })();
-function persist() { store.set(SAVE_KEY, SAVE); }
+function persist() { store.set(SAVE_KEY, SAVE); if (typeof Account !== 'undefined') Account.scheduleUpload(); }
 
 /* ----- money ----- */
 function addMoney(n, why) {

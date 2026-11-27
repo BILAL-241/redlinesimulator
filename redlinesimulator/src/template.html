@@ -1,5 +1,6 @@
 <title>Redline Garage</title>
 <meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0d12'/%3E%3Cpath d='M10 44 L22 20 H40 L52 34 V44 Z' fill='%23ffb020'/%3E%3Crect x='10' y='40' width='44' height='4' fill='%23e10600'/%3E%3C/svg%3E">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -263,6 +264,11 @@ body.touch #touch button.sm { width: 52px; height: 52px; }
 @media (max-width: 820px) { #mini { width: 104px; height: 104px; } .hud-btns button { padding: 5px 10px; } .hud-mid { bottom: 30%; } .menu-stats { gap: 14px; } }
 body.touch .hud-mid { bottom: 34%; }
 
+.acct-bar { position: fixed; left: 12px; bottom: 12px; z-index: 60; display: flex; align-items: center; gap: 10px; background: rgba(10,12,18,0.72); border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px 6px 12px; font: 600 13px var(--data); color: var(--fg); }
+.acct-bar[hidden] { display: none; }
+.menu-btns .btn[hidden] { display: none; }
+.menu-btns .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+#md-auth .dlg { max-width: 360px; }
 </style>
 
 <canvas id="gl" aria-label="3D view"></canvas>
@@ -274,6 +280,8 @@ body.touch .hud-mid { bottom: 34%; }
     <div class="eyebrow">60 cars &middot; 6 open worlds &middot; <b>earn, buy, tune</b></div>
     <h1>Drive it.<br><span>Own it.</span></h1>
     <div class="menu-btns">
+      <button class="btn primary big" id="m-login" type="button" hidden>Log in or create account <span>&rarr;</span></button>
+      <div class="mp-note" id="m-lock-note" role="status"></div>
       <button class="btn primary big" id="m-play" type="button">Drive <span>&rarr;</span></button>
       <button class="btn" id="m-garage" type="button">Garage &amp; Dealership</button>
       <button class="btn" id="m-mp" type="button">Multiplayer · shared world <span class="live-dot"></span></button>
@@ -445,4 +453,14 @@ body.touch .hud-mid { bottom: 34%; }
   <div class="dlg panel"><h2>Can't start</h2><p style="margin:0;color:var(--dim)"></p></div>
 </div>
 
+<div class="modal" id="md-auth" hidden>
+  <div class="dlg panel"><h2>Redline Garage</h2>
+    <div style="color:var(--dim);font-size:14px">Log in or create an account. Your garage and credits are saved to your account.</div>
+    <label class="mp-f"><span>Name (3 to 16 letters, numbers or _)</span><input id="au-name" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="16"></label>
+    <label class="mp-f"><span>Password (6 or more characters)</span><input id="au-pass" type="password" autocomplete="current-password" maxlength="100"></label>
+    <div id="au-msg" style="color:var(--dim);font-size:13px;min-height:18px;margin-top:10px"></div>
+    <div class="btns"><button class="btn primary" id="au-login">Log in</button><button class="btn" id="au-reg">Create account</button><button class="btn ghost" id="au-close" type="button">Close</button></div>
+  </div>
+</div>
+<div class="acct-bar" id="acct-bar" hidden><span id="acct-name"></span><button class="btn ghost" id="acct-out">Log out</button></div>
 <!--SCRIPTS-->

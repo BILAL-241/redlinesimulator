@@ -13,7 +13,8 @@ const Net = {
   init: function () {
     const saved = store.get('rg.net', {}), loc = window.location;
     // The game is served by the same server that runs the relay, so the default address is this page's own host.
-    const def = /^https?:$/.test(loc.protocol) && loc.host ? (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host : '';
+    // MP_SERVER (set at build time) points at a separately hosted relay, for hosts that serve only static files.
+    const def = window.MP_SERVER || (/^https?:$/.test(loc.protocol) && loc.host ? (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host : '');
     this.defUrl = def;
     // A saved custom address is only reused on the host it was saved from (avoids a stale localhost address after deploy).
     this.url = (saved.host === loc.host && saved.url) ? saved.url : def; this.room = saved.room || 'public';

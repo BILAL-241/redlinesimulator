@@ -10,9 +10,10 @@
 const WALK = { speed: 4.6, run: 8.5, turn: 2.6, enterR: 4.2, radius: 0.42, bustR: 3.2, lostR: 170, lostT: 14 };
 const POLICE_TYPES = ['sedan', 'suv', 'wagon'];
 
-function buildWalkerMesh() {
+function buildWalkerMesh(pal) {
+  pal = pal || {};
   const g = new THREE.Group(), mk = function (hex, rough) { return new THREE.MeshStandardMaterial({ color: lin(hex), roughness: rough || 0.75, metalness: 0 }); };
-  const suit = mk('#2c3e5c'), pants = mk('#1d2230'), skin = mk('#c58b62'), hair = mk('#1a140f'), shoe = mk('#111111');
+  const suit = mk(pal.suit || '#2c3e5c'), pants = mk(pal.pants || '#1d2230'), skin = mk(pal.skin || '#c58b62'), hair = mk(pal.hair || '#1a140f'), shoe = mk(pal.shoe || '#111111');
   const part = function (geo, m, x, y, z) { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; return o; };
   const legs = [], arms = [];
   [-1, 1].forEach(function (s) {
@@ -147,7 +148,7 @@ Object.assign(Game, {
   /* ---------- wanted level and police ---------- */
   addWanted: function (n) {
     this.wanted = Math.min(3, (this.wanted || 0) + n); this.lostT = 0;
-    this.syncChasers();
+    this.syncChasers(); this.syncCops();
   },
   spawnChaser: function () {
     const W = this.W, p = this.targetPos(), roads = W.net.roads.filter(function (r) { return r.kind !== 'spoke'; });
@@ -188,17 +189,22 @@ Object.assign(Game, {
     if (!this.wanted) return;
     const p = this.targetPos(); let near = Infinity;
     for (let i = 0; i < this.chasers.length; i++) { const c = this.chasers[i]; this.updateChaser(c, dt, p); near = Math.min(near, Math.hypot(c.x - p.x, c.z - p.z)); }
+    for (let i = 0; i < this.cops.length; i++) { const c = this.cops[i]; near = Math.min(near, Math.hypot(c.x - p.x, c.z - p.z)); } // officers on foot keep the chase going too
     if (near < (this.onFoot ? WALK.bustR - 0.6 : WALK.bustR)) { this.busted(); return; }
     if (near > WALK.lostR) this.lostT = (this.lostT || 0) + dt; else this.lostT = 0;
-    if (this.lostT > WALK.lostT) { this.wanted = 0; this.lostT = 0; this.syncChasers(); this.toast('Police lost you', false); }
+    if (this.lostT > WALK.lostT) { this.clearWanted(); this.toast('Police lost you', false); }
   },
   busted: function () {
-    const fine = Math.min(SAVE.money, 500 * this.wanted);
+    this.arrest('Busted!');
+  },
+  // Police take the player in: fine for each star, wanted level cleared, back on the street.
+  arrest: function (what) {
+    const fine = Math.min(SAVE.money, 500 * Math.max(1, this.wanted || 0));
     addMoney(-fine, 'fine');
-    this.wanted = 0; this.lostT = 0; this.syncChasers();
+    this.clearWanted();
     if (this.onFoot) {
-      this.walkerReset(); this.toast('Busted! Fined ' + fmtMoney(fine) + ' CR', true);
-    } else this.respawn('Busted! Fined ' + fmtMoney(fine) + ' CR');
+      this.walkerReset(); this.toast(what + ' Fined ' + fmtMoney(fine) + ' CR', true);
+    } else this.respawn(what + ' Fined ' + fmtMoney(fine) + ' CR');
   },
   wantedHud: function () {
     showEl('h-wanted-card', !!this.wanted);
