@@ -36,17 +36,27 @@ const Account = {
   gate: function () {
     const self = this;
     this.bind();
+    this.takeHash();
     try { UI.loading(false); } catch (e) { /* UI not ready yet */ }
     return new Promise(function (resolve) {
       self.done = resolve;
       self.check();
     });
   },
+  // After Google sign-in the server returns here with #token=... or #error=...; keep the token, clear the address.
+  takeHash: function () {
+    const h = location.hash.replace(/^#/, ''); if (!h) return;
+    const p = new URLSearchParams(h);
+    if (p.get('token')) { store.set(this.TOKEN_KEY, p.get('token')); store.set(this.NAME_KEY, p.get('name') || ''); }
+    if (p.get('error')) this.loginError = 'Google sign-in did not work. Try again or use a name and password.';
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+  },
+
   check: function () {
     const self = this;
-    if (!this.token()) return this.lock('Log in to play.');
+    if (!this.token()) return this.lock(this.loginError || 'Playing as a guest. Log in to save your garage and credits.');
     this.api('GET', '/api/me').then(function (r) {
-      if (r.status === 401) { store.set(self.TOKEN_KEY, ''); return self.lock('Log in to play.'); }
+      if (r.status === 401) { store.set(self.TOKEN_KEY, ''); return self.lock('Your session ended. Log in to save your progress.'); }
       if (r.status !== 200) throw new Error('bad-status');
       return self.syncDown().then(function () { self.finish(r.body.name); });
     }).catch(function (e) { self.lock(self.explain(e)); });
@@ -93,17 +103,17 @@ const Account = {
   },
 
   // Not logged in, or the check failed: the menu opens with its Log in button and the play buttons locked.
+  // Not logged in (guest play, a failed check, or no server): the menu shows the Log in button.
+  // Guests can play; only a logged-in player's progress is saved to the server.
   lock: function (msg) {
-    this.locked = true;
+    this.loggedIn = false;
     const note = document.getElementById('m-lock-note'); if (note) note.textContent = msg || '';
     this.applyLock();
     if (this.done) { const d = this.done; this.done = null; d(); }
   },
   applyLock: function () {
-    const locked = !!this.locked;
-    ['m-play', 'm-garage', 'm-mp', 'm-travel'].forEach(function (id) { const b = document.getElementById(id); if (b) b.disabled = locked; });
-    const login = document.getElementById('m-login'); if (login) login.hidden = !locked;
-    const bar = document.getElementById('acct-bar'); if (bar) bar.hidden = locked;
+    const login = document.getElementById('m-login'); if (login) login.hidden = !!this.loggedIn;
+    const bar = document.getElementById('acct-bar'); if (bar) bar.hidden = !this.loggedIn;
   },
   openLogin: function () {
     const m = document.getElementById('md-auth'); if (!m) return;
@@ -114,7 +124,8 @@ const Account = {
 
   finish: function (name) {
     store.set(this.NAME_KEY, name);
-    this.locked = false; this.applyLock();
+    this.loggedIn = true; this.applyLock();
+    const note = document.getElementById('m-lock-note'); if (note) note.textContent = '';
     const m = document.getElementById('md-auth'); if (m) m.hidden = true;
     const who = document.getElementById('acct-name');
     if (who) who.textContent = name;
@@ -150,6 +161,7 @@ const Account = {
     on('au-reg', function () { self.submit('register'); });
     on('acct-out', function () { self.logout(); });
     on('m-login', function () { self.openLogin(); });
+    const g = document.getElementById('au-google'); if (g) g.href = this.base() + '/api/google/start';
     on('au-close', function () { const m = document.getElementById('md-auth'); if (m) m.hidden = true; });
     const pass = document.getElementById('au-pass');
     if (pass) pass.addEventListener('keydown', function (e) { if (e.key === 'Enter') self.submit('login'); });
