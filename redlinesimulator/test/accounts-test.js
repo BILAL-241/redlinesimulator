@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path');
 const PORT = 8197, BASE = 'http://localhost:' + PORT;
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'rg-acc-'));
-const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], { env: Object.assign({}, process.env, { PORT: String(PORT), DATA_DIR: DATA }), stdio: ['ignore', 'pipe', 'pipe'] });
+const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], { env: Object.assign({}, process.env, { PORT: String(PORT), DATA_DIR: DATA, TURSO_DATABASE_URL: '', TURSO_AUTH_TOKEN: '' }), stdio: ['ignore', 'pipe', 'pipe'] });
 let fails = 0;
 function check(name, ok, extra) { console.log((ok ? 'PASS ' : 'FAIL ') + name + (extra ? ' ' + extra : '')); if (!ok) fails++; }
 async function call(method, p, body, token) {

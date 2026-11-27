@@ -38,7 +38,7 @@ Run all the test commands plus the build before publishing any change.
 | `src/game.js` | `Game`: modes, world session, traffic, events, income, camera, HUD, minimap, main loop |
 | `src/onfoot.js` | on foot mode: walking (`stepWalk`), getting in and out (`getIn`, `getOut`), stealing traffic cars (`steal`), wanted level and police chasers (`updateWanted`, `busted`), walk camera. Merged into `Game` |
 | `src/account.js` | login gate before play: register, log in, log out, save sync to the server (`Account.gate`, `scheduleUpload`, `syncDown`). Uses `MP_SERVER` as the server address |
-| `server/accounts.js` | accounts and saved games on the server: `/api/register`, `/api/login`, `/api/logout`, `/api/me`, `/api/save`. Passwords hashed with scrypt, data in `DATA_DIR` (default `data/`, git-ignored) |
+| `server/accounts.js` | accounts and saved games on the server: `/api/register`, `/api/login`, `/api/logout`, `/api/me`, `/api/save`. Passwords hashed with scrypt. Storage: Turso (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`), or `DATA_DIR` files when those are unset |
 | `src/boot.js` | wires UI and starts `Game` (waits for `Account.gate`) |
 | `src/template.html` | page shell, CSS tokens, DOM for every screen. `<!--SCRIPTS-->` is replaced at build time |
 
@@ -85,8 +85,9 @@ Script order is fixed (`net.js` sits between `ui.js` and `game.js`) in `build.js
 
 - Players must log in before playing. The save (`SAVE`, which holds garage and credits) is loaded from the server on login and uploaded about 2.5 s after each `persist()`.
 - Needs a server: `MP_SERVER` must be set at build time, or the page must be served by the game server.
-- Server data lives in `DATA_DIR` (`data/` by default): `users.json`, `sessions.json`, `saves/<id>.json`. Hosts with ephemeral disks (such as Render's free plan) lose this on restart, so back the folder up or use a host with a persistent disk.
-- Test: `node test/accounts-test.js` (starts its own server on port 8197, no browser needed).
+- Storage: Turso when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set (tables `users`, `sessions`, `saves`, created on start). Without them, the server writes JSON files to `DATA_DIR` (`data/` by default, git-ignored). Hosts with ephemeral disks lose local files on restart, so production should use Turso.
+- Turso is called over HTTP (`/v2/pipeline`) with Node's built-in `fetch`, so there is no npm dependency.
+- Tests: `node test/accounts-test.js` (local files, port 8197) and `node test/accounts-turso-test.js` (Turso path, against `test/turso-mock.js`, a local SQLite stand-in, port 8195/8196). Neither needs a browser or a real Turso token.
 
 ## Publishing
 
