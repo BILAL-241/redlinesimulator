@@ -1,5 +1,6 @@
 <title>Redline Garage</title>
 <meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b0d12'/%3E%3Cpath d='M10 44 L22 20 H40 L52 34 V44 Z' fill='%23ffb020'/%3E%3Crect x='10' y='40' width='44' height='4' fill='%23e10600'/%3E%3C/svg%3E">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -265,6 +266,8 @@ body.touch .hud-mid { bottom: 34%; }
 
 .acct-bar { position: fixed; left: 12px; bottom: 12px; z-index: 60; display: flex; align-items: center; gap: 10px; background: rgba(10,12,18,0.72); border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px 6px 12px; font: 600 13px var(--data); color: var(--fg); }
 .acct-bar[hidden] { display: none; }
+.menu-btns .btn[hidden] { display: none; }
+.menu-btns .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 #md-auth .dlg { max-width: 360px; }
 </style>
 
@@ -277,6 +280,8 @@ body.touch .hud-mid { bottom: 34%; }
     <div class="eyebrow">60 cars &middot; 6 open worlds &middot; <b>earn, buy, tune</b></div>
     <h1>Drive it.<br><span>Own it.</span></h1>
     <div class="menu-btns">
+      <button class="btn primary big" id="m-login" type="button" hidden>Log in or create account <span>&rarr;</span></button>
+      <div class="mp-note" id="m-lock-note" role="status"></div>
       <button class="btn primary big" id="m-play" type="button">Drive <span>&rarr;</span></button>
       <button class="btn" id="m-garage" type="button">Garage &amp; Dealership</button>
       <button class="btn" id="m-mp" type="button">Multiplayer · shared world <span class="live-dot"></span></button>
@@ -454,7 +459,7 @@ body.touch .hud-mid { bottom: 34%; }
     <label class="mp-f"><span>Name (3 to 16 letters, numbers or _)</span><input id="au-name" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="16"></label>
     <label class="mp-f"><span>Password (6 or more characters)</span><input id="au-pass" type="password" autocomplete="current-password" maxlength="100"></label>
     <div id="au-msg" style="color:var(--dim);font-size:13px;min-height:18px;margin-top:10px"></div>
-    <div class="btns"><button class="btn primary" id="au-login">Log in</button><button class="btn" id="au-reg">Create account</button></div>
+    <div class="btns"><button class="btn primary" id="au-login">Log in</button><button class="btn" id="au-reg">Create account</button><button class="btn ghost" id="au-close" type="button">Close</button></div>
   </div>
 </div>
 <div class="acct-bar" id="acct-bar" hidden><span id="acct-name"></span><button class="btn ghost" id="acct-out">Log out</button></div>
@@ -3317,6 +3322,7 @@ const Game = {
     this.player = null; this.mapIdx = -1; this.wp = null; this.nearEv = null;
   },
   start: function () { // from menu: continue where we left off
+    if (typeof Account !== 'undefined' && Account.locked) return; // log in first
     const self = this;
     UI.loading(true);
     setTimeout(function () {
@@ -3391,6 +3397,7 @@ const Game = {
   openMap: function () { if (this.mode !== 'roam' && this.mode !== 'paused') return; UI.showModal('md-pause', false); this.mode = 'map'; Sound.silence(); UI.openMap(); },
   closeMap: function () { UI.closeMap(); this.mode = 'paused'; UI.showModal('md-pause', true); },
   openGarage: function (fromWorld) {
+    if (typeof Account !== 'undefined' && Account.locked) return; // log in first
     if (fromWorld && this.onFoot) { this.toast('Get in a car to open the garage', true); return; }
     this.pauseFrom = fromWorld ? 'world' : 'menu';
     if (fromWorld) { UI.showModal('md-pause', false); this.savePos(); }
@@ -4230,12 +4237,12 @@ const Account = {
   },
   check: function () {
     const self = this;
-    if (!this.token()) return this.show('');
+    if (!this.token()) return this.lock('Log in to play.');
     this.api('GET', '/api/me').then(function (r) {
-      if (r.status === 401) { store.set(self.TOKEN_KEY, ''); return self.show('Log in to continue.'); }
+      if (r.status === 401) { store.set(self.TOKEN_KEY, ''); return self.lock('Log in to play.'); }
       if (r.status !== 200) throw new Error('bad-status');
       return self.syncDown().then(function () { self.finish(r.body.name); });
-    }).catch(function (e) { self.show(self.explain(e)); });
+    }).catch(function (e) { self.lock(self.explain(e)); });
   },
 
   explain: function (e) {
@@ -4278,19 +4285,32 @@ const Account = {
     this.timer = setTimeout(() => this.upload(), 2500);
   },
 
-  show: function (msg) {
+  // Not logged in, or the check failed: the menu opens with its Log in button and the play buttons locked.
+  lock: function (msg) {
+    this.locked = true;
+    const note = document.getElementById('m-lock-note'); if (note) note.textContent = msg || '';
+    this.applyLock();
+    if (this.done) { const d = this.done; this.done = null; d(); }
+  },
+  applyLock: function () {
+    const locked = !!this.locked;
+    ['m-play', 'm-garage', 'm-mp', 'm-travel'].forEach(function (id) { const b = document.getElementById(id); if (b) b.disabled = locked; });
+    const login = document.getElementById('m-login'); if (login) login.hidden = !locked;
+    const bar = document.getElementById('acct-bar'); if (bar) bar.hidden = locked;
+  },
+  openLogin: function () {
     const m = document.getElementById('md-auth'); if (!m) return;
-    m.hidden = false;
-    this.msg(msg);
+    m.hidden = false; this.msg('');
+    const n = document.getElementById('au-name'); if (n) n.focus();
   },
   msg: function (text) { const el = document.getElementById('au-msg'); if (el) el.textContent = text || ''; },
 
   finish: function (name) {
     store.set(this.NAME_KEY, name);
+    this.locked = false; this.applyLock();
     const m = document.getElementById('md-auth'); if (m) m.hidden = true;
-    const bar = document.getElementById('acct-bar'), who = document.getElementById('acct-name');
+    const who = document.getElementById('acct-name');
     if (who) who.textContent = name;
-    if (bar) bar.hidden = false;
     if (this.done) { const d = this.done; this.done = null; d(); }
   },
 
@@ -4304,7 +4324,8 @@ const Account = {
       if (r.status !== 200) { self.msg(r.body.error || 'Something went wrong.'); return; }
       store.set(self.TOKEN_KEY, r.body.token);
       document.getElementById('au-pass').value = '';
-      return self.syncDown().then(function () { self.finish(r.body.name); });
+      // Reload so the game starts the normal way, with the account's save loaded before anything is drawn.
+      return self.syncDown().then(function () { location.reload(); });
     }).catch(function (e) { self.msg(self.explain(e)); });
   },
 
@@ -4321,6 +4342,8 @@ const Account = {
     on('au-login', function () { self.submit('login'); });
     on('au-reg', function () { self.submit('register'); });
     on('acct-out', function () { self.logout(); });
+    on('m-login', function () { self.openLogin(); });
+    on('au-close', function () { const m = document.getElementById('md-auth'); if (m) m.hidden = true; });
     const pass = document.getElementById('au-pass');
     if (pass) pass.addEventListener('keydown', function (e) { if (e.key === 'Enter') self.submit('login'); });
     // Save anything still waiting when the player leaves the page.
