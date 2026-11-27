@@ -44,12 +44,12 @@ const Account = {
   },
   check: function () {
     const self = this;
-    if (!this.token()) return this.show('');
+    if (!this.token()) return this.lock('Log in to play.');
     this.api('GET', '/api/me').then(function (r) {
-      if (r.status === 401) { store.set(self.TOKEN_KEY, ''); return self.show('Log in to continue.'); }
+      if (r.status === 401) { store.set(self.TOKEN_KEY, ''); return self.lock('Log in to play.'); }
       if (r.status !== 200) throw new Error('bad-status');
       return self.syncDown().then(function () { self.finish(r.body.name); });
-    }).catch(function (e) { self.show(self.explain(e)); });
+    }).catch(function (e) { self.lock(self.explain(e)); });
   },
 
   explain: function (e) {
@@ -92,19 +92,32 @@ const Account = {
     this.timer = setTimeout(() => this.upload(), 2500);
   },
 
-  show: function (msg) {
+  // Not logged in, or the check failed: the menu opens with its Log in button and the play buttons locked.
+  lock: function (msg) {
+    this.locked = true;
+    const note = document.getElementById('m-lock-note'); if (note) note.textContent = msg || '';
+    this.applyLock();
+    if (this.done) { const d = this.done; this.done = null; d(); }
+  },
+  applyLock: function () {
+    const locked = !!this.locked;
+    ['m-play', 'm-garage', 'm-mp', 'm-travel'].forEach(function (id) { const b = document.getElementById(id); if (b) b.disabled = locked; });
+    const login = document.getElementById('m-login'); if (login) login.hidden = !locked;
+    const bar = document.getElementById('acct-bar'); if (bar) bar.hidden = locked;
+  },
+  openLogin: function () {
     const m = document.getElementById('md-auth'); if (!m) return;
-    m.hidden = false;
-    this.msg(msg);
+    m.hidden = false; this.msg('');
+    const n = document.getElementById('au-name'); if (n) n.focus();
   },
   msg: function (text) { const el = document.getElementById('au-msg'); if (el) el.textContent = text || ''; },
 
   finish: function (name) {
     store.set(this.NAME_KEY, name);
+    this.locked = false; this.applyLock();
     const m = document.getElementById('md-auth'); if (m) m.hidden = true;
-    const bar = document.getElementById('acct-bar'), who = document.getElementById('acct-name');
+    const who = document.getElementById('acct-name');
     if (who) who.textContent = name;
-    if (bar) bar.hidden = false;
     if (this.done) { const d = this.done; this.done = null; d(); }
   },
 
@@ -118,7 +131,8 @@ const Account = {
       if (r.status !== 200) { self.msg(r.body.error || 'Something went wrong.'); return; }
       store.set(self.TOKEN_KEY, r.body.token);
       document.getElementById('au-pass').value = '';
-      return self.syncDown().then(function () { self.finish(r.body.name); });
+      // Reload so the game starts the normal way, with the account's save loaded before anything is drawn.
+      return self.syncDown().then(function () { location.reload(); });
     }).catch(function (e) { self.msg(self.explain(e)); });
   },
 
@@ -135,6 +149,8 @@ const Account = {
     on('au-login', function () { self.submit('login'); });
     on('au-reg', function () { self.submit('register'); });
     on('acct-out', function () { self.logout(); });
+    on('m-login', function () { self.openLogin(); });
+    on('au-close', function () { const m = document.getElementById('md-auth'); if (m) m.hidden = true; });
     const pass = document.getElementById('au-pass');
     if (pass) pass.addEventListener('keydown', function (e) { if (e.key === 'Enter') self.submit('login'); });
     // Save anything still waiting when the player leaves the page.

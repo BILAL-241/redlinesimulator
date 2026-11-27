@@ -74,6 +74,7 @@ const Game = {
     this.player = null; this.mapIdx = -1; this.wp = null; this.nearEv = null;
   },
   start: function () { // from menu: continue where we left off
+    if (typeof Account !== 'undefined' && Account.locked) return; // log in first
     const self = this;
     UI.loading(true);
     setTimeout(function () {
@@ -148,6 +149,7 @@ const Game = {
   openMap: function () { if (this.mode !== 'roam' && this.mode !== 'paused') return; UI.showModal('md-pause', false); this.mode = 'map'; Sound.silence(); UI.openMap(); },
   closeMap: function () { UI.closeMap(); this.mode = 'paused'; UI.showModal('md-pause', true); },
   openGarage: function (fromWorld) {
+    if (typeof Account !== 'undefined' && Account.locked) return; // log in first
     if (fromWorld && this.onFoot) { this.toast('Get in a car to open the garage', true); return; }
     this.pauseFrom = fromWorld ? 'world' : 'menu';
     if (fromWorld) { UI.showModal('md-pause', false); this.savePos(); }
