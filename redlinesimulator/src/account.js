@@ -36,15 +36,25 @@ const Account = {
   gate: function () {
     const self = this;
     this.bind();
+    this.takeHash();
     try { UI.loading(false); } catch (e) { /* UI not ready yet */ }
     return new Promise(function (resolve) {
       self.done = resolve;
       self.check();
     });
   },
+  // After Google sign-in the server returns here with #token=... or #error=...; keep the token, clear the address.
+  takeHash: function () {
+    const h = location.hash.replace(/^#/, ''); if (!h) return;
+    const p = new URLSearchParams(h);
+    if (p.get('token')) { store.set(this.TOKEN_KEY, p.get('token')); store.set(this.NAME_KEY, p.get('name') || ''); }
+    if (p.get('error')) this.loginError = 'Google sign-in did not work. Try again or use a name and password.';
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+  },
+
   check: function () {
     const self = this;
-    if (!this.token()) return this.lock('Log in to play.');
+    if (!this.token()) return this.lock(this.loginError || 'Log in to play.');
     this.api('GET', '/api/me').then(function (r) {
       if (r.status === 401) { store.set(self.TOKEN_KEY, ''); return self.lock('Log in to play.'); }
       if (r.status !== 200) throw new Error('bad-status');
@@ -150,6 +160,7 @@ const Account = {
     on('au-reg', function () { self.submit('register'); });
     on('acct-out', function () { self.logout(); });
     on('m-login', function () { self.openLogin(); });
+    const g = document.getElementById('au-google'); if (g) g.href = this.base() + '/api/google/start';
     on('au-close', function () { const m = document.getElementById('md-auth'); if (m) m.hidden = true; });
     const pass = document.getElementById('au-pass');
     if (pass) pass.addEventListener('keydown', function (e) { if (e.key === 'Enter') self.submit('login'); });

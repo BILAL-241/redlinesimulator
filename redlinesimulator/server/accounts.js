@@ -30,6 +30,16 @@ const DB_TOKEN = (process.env.TURSO_AUTH_TOKEN || '').trim();
 const USE_TURSO = !!(DB_URL && DB_TOKEN);
 const PIPE_URL = DB_URL.replace(/^(libsql|turso):\/\//, 'https://').replace(/\/+$/, '') + '/v2/pipeline';
 
+// Google sign-in. Off until GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set.
+const GOOGLE_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+const GOOGLE_SECRET = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+const GOOGLE_ON = !!(GOOGLE_ID && GOOGLE_SECRET);
+const GOOGLE_AUTH_URL = process.env.GOOGLE_AUTH_URL || 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token';
+const GOOGLE_USERINFO_URL = process.env.GOOGLE_USERINFO_URL || 'https://openidconnect.googleapis.com/v1/userinfo';
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').trim().replace(/\/+$/, ''); // this server's own address, e.g. https://your-service.onrender.com
+const SITE_URL = (process.env.SITE_URL || 'https://redlinesimulator.vercel.app/').trim(); // where players return after signing in
+
 /* ---------- Turso over HTTP (no npm package needed) ---------- */
 function dbArg(v) {
   if (v === null || v === undefined) return { type: 'null' };
@@ -64,7 +74,7 @@ async function dbRun(sql, args) {
 }
 
 const SCHEMA = [
-  'CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, salt TEXT NOT NULL, hash TEXT NOT NULL, created INTEGER NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, salt TEXT NOT NULL, hash TEXT NOT NULL, created INTEGER NOT NULL, google_sub TEXT)',
   'CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, uid TEXT NOT NULL, t INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS saves (uid TEXT PRIMARY KEY, data TEXT NOT NULL)'
 ];
@@ -88,7 +98,7 @@ let ready;
 if (USE_TURSO) {
   ready = (async function () {
     for (const sql of SCHEMA) await dbRun(sql);
-    users = await dbRun('SELECT id, name, salt, hash, created FROM users');
+    users = await dbRun('SELECT id, name, salt, hash, created, google_sub FROM users');
     sessions = {};
     for (const r of await dbRun('SELECT token, uid, t FROM sessions')) sessions[r.token] = { uid: r.uid, t: r.t };
   })();
@@ -104,8 +114,8 @@ console.log('Accounts storage: ' + (USE_TURSO ? 'Turso database' : 'local files 
 /* ---------- persistence ---------- */
 async function saveUser(user) {
   if (USE_TURSO) {
-    return dbRun('INSERT INTO users (id, name, salt, hash, created) VALUES (?, ?, ?, ?, ?)',
-      [user.id, user.name, user.salt, user.hash, user.created]);
+    return dbRun('INSERT INTO users (id, name, salt, hash, created, google_sub) VALUES (?, ?, ?, ?, ?, ?)',
+      [user.id, user.name, user.salt, user.hash, user.created, user.google_sub || null]);
   }
   return fileWrite(USERS_FILE, users.concat([user]));
 }
@@ -226,6 +236,9 @@ async function route(req, res, key, token) {
     return send(res, 200, { ok: true });
   }
 
+  if (key === 'GET /api/google/start') return googleStart(req, res);
+  if (key === 'GET /api/google/callback') return googleCallback(req, res);
+
   const user = sessionFor(token);
   if (!user) return send(res, 401, { error: 'Log in first' });
 
@@ -243,6 +256,73 @@ async function route(req, res, key, token) {
   }
 
   return send(res, 404, { error: 'Not found' });
+}
+
+/* ---------- Google sign-in ---------- */
+// Flow: the game opens /api/google/start, which sends the player to Google. Google sends them back
+// to /api/google/callback, which signs them in (creating the account on first use) and returns them
+// to the game with the session token in the address fragment (#token=...).
+const googleStates = new Map(); // state -> expiry time (pending sign-ins in this server's memory)
+
+function redirect(res, location) {
+  res.writeHead(302, { location: location, 'cache-control': 'no-store' });
+  res.end();
+}
+function backToSite(res, params) {
+  redirect(res, SITE_URL.replace(/#.*$/, '') + '#' + new URLSearchParams(params).toString());
+}
+function googleRedirectUri() { return PUBLIC_URL + '/api/google/callback'; }
+
+function googleStart(req, res) {
+  if (!GOOGLE_ON || !PUBLIC_URL) return send(res, 503, { error: 'Google sign-in is not set up' });
+  const state = crypto.randomBytes(16).toString('hex');
+  googleStates.set(state, Date.now() + 10 * 60 * 1000);
+  const q = new URLSearchParams({
+    client_id: GOOGLE_ID, redirect_uri: googleRedirectUri(), response_type: 'code',
+    scope: 'openid email profile', state: state, prompt: 'select_account'
+  });
+  return redirect(res, GOOGLE_AUTH_URL + '?' + q.toString());
+}
+
+// A name for a new Google player: their first name or the start of their email, letters, digits and _ only.
+async function newGoogleUser(info) {
+  let base = String(info.given_name || info.name || String(info.email || '').split('@')[0]).replace(/[^A-Za-z0-9_]/g, '').slice(0, 10);
+  if (base.length < 3) base = 'player';
+  let name = base, n = 1;
+  while (users.some(u => u.name.toLowerCase() === name.toLowerCase())) name = base + (++n);
+  const user = { id: crypto.randomBytes(8).toString('hex'), name: name, salt: '', hash: '', created: Date.now(), google_sub: info.sub };
+  await saveUser(user);
+  users.push(user);
+  return user;
+}
+
+async function googleCallback(req, res) {
+  const params = new URL(req.url, 'http://localhost').searchParams;
+  const state = params.get('state') || '', code = params.get('code') || '';
+  const expiry = googleStates.get(state);
+  googleStates.delete(state);
+  if (!GOOGLE_ON || !expiry || expiry < Date.now() || !code) return backToSite(res, { error: 'google-failed' });
+  try {
+    const tr = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: code, client_id: GOOGLE_ID, client_secret: GOOGLE_SECRET,
+        redirect_uri: googleRedirectUri(), grant_type: 'authorization_code'
+      }).toString()
+    });
+    const tok = await tr.json().catch(function () { return {}; });
+    if (!tok.access_token) return backToSite(res, { error: 'google-failed' });
+    const ir = await fetch(GOOGLE_USERINFO_URL, { headers: { authorization: 'Bearer ' + tok.access_token } });
+    const info = await ir.json().catch(function () { return {}; });
+    if (!info.sub) return backToSite(res, { error: 'google-failed' });
+    const user = users.find(u => u.google_sub === info.sub) || await newGoogleUser(info);
+    const token = await openSession(user.id);
+    return backToSite(res, { token: token, name: user.name });
+  } catch (e) {
+    console.error('Google sign-in failed: ' + e.message);
+    return backToSite(res, { error: 'google-failed' });
+  }
 }
 
 // Returns true if the request was an /api/ route (handled here), false otherwise.
